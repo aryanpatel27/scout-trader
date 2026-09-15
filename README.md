@@ -1,114 +1,101 @@
-# agentic-trader v2
+# Scout — an autonomous, self-improving trading agent (stocks · options · on-chain DeFi)
 
-Paper-first agentic trading system for Aryan's setup: **YBI** (Young Bull Investors)
-small-cap level alerts + **TDT** (The Daily Traders) options-flow signals, routed by
-account size, with a local dashboard. Zero required dependencies — Python 3.11+ stdlib.
+[![ci](https://img.shields.io/badge/tests-74%20checks-brightgreen)](.github/workflows/ci.yml)
+![python](https://img.shields.io/badge/python-3.11%2B-blue) ![deps](https://img.shields.io/badge/runtime%20deps-stdlib-lightgrey)
 
-## Hard boundaries (read first)
+Scout is a 24/7 trading agent that **finds its own trades, executes them through a
+real brokerage API, journals every decision with its reasoning, and re-tunes its
+own parameters from outcomes** — inside hard, non-negotiable risk rails. It runs
+as a single Python process (stdlib only at its core) with a SQLite store, a
+threaded engine, and a live dashboard.
 
-- **Claude never executes trades.** Claude built this software and can read your
-  accounts/alerts, but placing real orders is something only *this program* does,
-  only when *you* arm it (three gates below). The Webull MCP connector Claude uses
-  is read-only.
-- **Paper mode is the default** and stays the default until the strategy proves
-  itself over meaningful sample size. No win rate is guaranteed — YBI's own
-  onboarding says alerts are not blind buy signals, and TDT publishes past
-  performance with disclaimers.
-- Nothing here is investment advice. Alerts belong to the services you pay for;
-  the bridges only mirror your own logged-in session to `127.0.0.1` for personal use.
+It trades three kinds of markets with three different rulebooks:
 
-## How it works
+| Lane | Universe | Strategy | Execution |
+|---|---|---|---|
+| **Small/mid caps** | +12% in-play movers | Level break-and-hold momentum, VWAP/EMA confluence, scale-out | Live (Webull OpenAPI) |
+| **Large caps** | >$10B names in play (+4%) | 5-min opening-range breakout / VWAP reclaim, relative strength vs SPY, ATR stops | Live |
+| **Options** | ATM/near-money calls on high-conviction finds | Delta ≈ 0.5, 3–21 DTE, premium stop/target, hard time exit | Gated live |
+| **DeFi (ETH)** | Uniswap v3 WETH/USDC on Ethereum, Base, Unichain | Same momentum framework; fills at the **best venue's executable quote** net of price impact and gas | Practice wallet |
+
+## What makes it interesting
+
+**A 5-step decision framework with a conviction score.** Every candidate is scored
+0–100 across technical (S/R, RSI, EMA stack, RVOL), fundamental/catalyst, sentiment,
+and risk (1% sizing, stop geometry), then synthesized into a written thesis. Trades
+need ≥ 75 *and* every hard risk gate. Everything else is a logged HOLD.
+
+**It learns from every trade — within bounds.** After each exit it reconstructs the
+price path (max favorable/adverse excursion), writes a plain-English lesson into
+the journal, updates win-rate buckets by conviction band / session window / asset,
+and adjusts its own thresholds (conviction floor 75–85, volume filter, minimum stop
+width). Every two hours and nightly it **replays 5 days of 1-minute bars** through
+its exact rules across a parameter grid and adopts a set only if it shows positive
+expectancy over ≥ 10 simulated trades. Position caps, risk %, the 3:55 flatten and
+loss cooldowns are *not* tunable — judgment tightens, the cage doesn't open.
+
+**Two wallets, never mixed.** Real money and the practice wallet (crypto, options
+until armed, mid-conviction "cohort" trades that generate learning data) have
+separate cash ledgers, positions and journals, and the dashboard toggles between them.
+
+**On-chain, not just CEX prices.** `defi.py` speaks JSON-RPC and ABI by hand: it
+discovers pools through the v3 factory, derives spot from `slot0`'s `sqrtPriceX96`,
+gets executable quotes from `QuoterV2` for a real notional (price impact), prices
+gas, and routes to the best chain. It found, e.g., a 2.7% impact on $1k in a thin
+Unichain pool vs 0.05% on Ethereum/Base — the difference between a trade and a gift.
+
+**Operational scars, fixed.** Two incidents (a harness crash after a fill → all-night
+retry storm; a stalled quote feed → an overnight hold that gapped down) each produced
+a permanent safeguard: broker-truth reconciliation, order backoff, stale-quote-proof
+flattening, an after-hours extended-hours exit net, a poller heartbeat + supervisor.
+See [docs/POSTMORTEMS.md](docs/POSTMORTEMS.md).
+
+## Architecture
 
 ```
-YBI web app tab ──┐ (Tampermonkey bridge)                        ┌─> dashboard  http://127.0.0.1:8787
-TDT software tab ─┼──> POST /ingest ──> parser ──> signals ──┐   │
-manual: trader paste ─┘                                      ├─> TradingCore.step() ─> PaperBroker (default)
-quotes: yfinance / bridge / trader quote ────────────────────┘        └─> WebullLiveBroker (triple-gated)
+ scanners (threads)             engine (2s loop)              brokers
+ ┌─ pre-market 7:00-9:30 ─┐     ┌──────────────────┐   ┌─ WebullLiveBroker ─ subprocess harness (isolated venv)
+ ├─ momentum screener ────┤     │ arm signals       │   │     · instrument lookup, LIMIT/MARKET, extended hours
+ ├─ large-cap screener ───┼──►  │ confirm & enter   ├──►├─ PracticeBroker ──── separate cash ledger
+ ├─ crypto 24/7 ──────────┤     │ manage exits      │   └─ (both) journal · lessons · learning stats
+ └─ Uniswap v3 poller ────┘     │ flatten / safety  │
+        │                       └──────────────────┘
+        ▼                                ▼
+   SQLite store  ◄───────────────  events · positions · journal · kv tuning
+        │
+        ▼
+   HTTP dashboard (:8787) — candlestick charts w/ levels, Scout board, self-improvement, on-chain liquidity
 ```
 
-- **Routing rule:** equity < `$200` → **YBI lane** (small-cap breakout setups);
-  equity ≥ `$200` → **TDT lane** (flow signals, traded as *shares of the underlying*
-  as a proxy — a $36 cash account cannot trade the actual option contracts).
-- **YBI lane:** only `"TICKER needs to hold H then break B1/B2/…"` arms a setup.
-  Entry requires price to actually clear B1 (+ buffer) while above H and above any
-  `"not in play below X"` level. SL = H, TP = next break level, else 2R.
-- **Exits:** stop, target, invalidation ("not in play"), 45-min time-stop, and a
-  hard 15:55 ET flatten. Never hold overnight (YBI rule #1: don't bag-hold).
-- **Cash-account realism (paper):** T+1 settlement, no shorting (bear signals are
-  logged and skipped), pessimistic slippage on every fill, GFV-safe (buys only
-  from settled cash).
-- **Risk:** 2% of equity per trade against the stop distance, max 2 positions,
-  -6% daily loss cap pauses new entries. At $36.74 many setups are unaffordable —
-  the dashboard shows these as `unaffordable` rather than pretending.
+Details: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · strategy notes:
+[knowledge/ybi_playbook.md](knowledge/ybi_playbook.md), [knowledge/largecap_playbook.md](knowledge/largecap_playbook.md)
 
-## Quick start
+## Safety design
+
+- Live orders require **two owner-set gates** (`mode = "live"` in config + an
+  acknowledgement in `.env`); options need a third. The harness independently
+  refuses to place orders without the acknowledgement. The AI assistant that helped
+  build this never flips a gate or places an order — the owner does.
+- Risk per trade 1%, max positions, 6% daily loss cap, 3:55 ET flatten, 3h cooldown
+  after a loss on a name, no chasing (entry ≤ 2–3% past the level), minimum stop
+  width so slippage can't eat a target.
+- Broker is the source of truth: balances/positions sync every 30s; stale local
+  positions are reconciled away, never traded against.
+- Secrets live in `.env` (gitignored); RPC access is read-only `eth_call`.
+
+## Run
 
 ```bash
-cd "~/Desktop/Agentic Trading"
-PYTHONPATH=src python3 -m trader selftest     # parsers + paper cycle checks
-PYTHONPATH=src python3 -m trader seed-demo    # load the real alerts captured 2026-07-28
-PYTHONPATH=src python3 -m trader serve        # dashboard at http://127.0.0.1:8787
+PYTHONPATH=src python3 -m trader selftest   # 74 offline checks (parsers, engine, wallets, learning, DeFi math)
+PYTHONPATH=src python3 -m trader serve      # dashboard at http://127.0.0.1:8787 (paper mode by default)
+PYTHONPATH=src python3 -m trader calibrate  # replay-based parameter training on recent data
 ```
 
-### Live alert feeds (one-time setup)
+Optional: `pip install yfinance` for market data; the Webull SDK in an isolated
+Python 3.9 venv for live execution (see `deploy/`). Everything else is stdlib.
 
-1. Install the **Tampermonkey** extension in Chrome.
-2. Add `bridge/ybi_bridge.user.js` and `bridge/tdt_bridge.user.js`.
-3. Keep **four pinned tabs** open — the three always-on YBI channels plus TDT:
-   - YBI `#premarket-alerts`
-   - YBI `#intraday-alerts`
-   - YBI `#live-commentary` (mentor entries/exits, halt calls, caution warnings)
-   - TDT `/signals`
-   The YBI script mirrors whichever watched channel each tab has open.
-4. Tokens: `[server].bridge_token` in `config.toml` must match the `TOKEN` constant
-   in both userscripts.
+## Status
 
-Notes: check each service's terms about automated access — these bridges read only
-what your logged-in tab already renders and never leave your machine. Discord (TDT's
-chat) is intentionally **not** bridged: automating a user account violates Discord's
-ToS; the TDT *software* feed above is the sanctioned surface. Optional: `pip install
-yfinance` gives the engine live-ish quotes without any bridge.
-
-### Trade journal (YBI format)
-
-Every exit is journaled instantly — exact fills, ET times, trade # (day/YTD), planned
-SL/TP, R-multiple, session window, and rationale (technical confirmation + emotional
-state; manual interventions are flagged for review). See `knowledge/ybi_playbook.md`.
-
-```bash
-PYTHONPATH=src python3 -m trader journal            # recent trades + stats
-PYTHONPATH=src python3 -m trader journal --summary  # weekly review: win rate, avg R, leaks
-```
-
-### Manual fallbacks
-
-```bash
-PYTHONPATH=src python3 -m trader paste --source ybi --channel intraday-alerts "EGG needs to hold 4.15 then break 4.97/5.71/6"
-PYTHONPATH=src python3 -m trader quote EGG 5.02
-PYTHONPATH=src python3 -m trader status
-```
-
-## Going live (deliberately annoying)
-
-Live orders require **all three**, every session:
-
-1. `config.toml` → `[mode] mode = "live"`
-2. `trader serve --live`
-3. `export LIVE_TRADING_ACK=I_UNDERSTAND_THE_RISKS`
-
-Plus your own Webull OpenAPI credentials in the environment (`WEBULL_APP_KEY`,
-`WEBULL_APP_SECRET`, `WEBULL_ACCOUNT_ID` — apply at developer.webull.com) and
-`pip install '.[live]'`. Until every gate agrees, the live class refuses to
-construct. TP/SL brackets are software-managed; native OTOCO on the v3 API is
-unverified.
-
-## Layout
-
-```
-src/trader/
-  config.py     gates + config.toml loader          parsers.py  YBI grammar + TDT cards
-  store.py      SQLite (trader.db)                  engine.py   TradingCore.step()
-  broker.py     PaperBroker / WebullLiveBroker      server.py   ingest + API + dashboard host
-  dashboard.html                                    selftest.py / seed.py
-bridge/         Tampermonkey userscripts (YBI, TDT)
-```
+Live since Sep 2026 on a small real account; real-money lane has been net positive,
+the practice wallet absorbed the crypto lane's learning curve. Not investment
+advice; not affiliated with any broker, protocol, or mentorship service.

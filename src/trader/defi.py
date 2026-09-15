@@ -21,17 +21,19 @@ import time
 import urllib.request
 
 CHAINS = {
-    "ethereum": {"chain_id": 1, "rpc": "https://ethereum-rpc.publicnode.com",
+    "ethereum": {"chain_id": 1, "rpc": ["https://ethereum-rpc.publicnode.com", "https://eth.llamarpc.com",
+                                        "https://cloudflare-eth.com"],
                  "factory": "0x1F98431c8aD98523631AE4a59f267346ea31F984",
                  "quoter": "0x61fFE014bA17989E743c5F6cB21bF9697530B21e",
                  "weth": "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
                  "usdc": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"},
-    "base": {"chain_id": 8453, "rpc": "https://mainnet.base.org",
+    "base": {"chain_id": 8453, "rpc": ["https://base-rpc.publicnode.com", "https://mainnet.base.org",
+                                       "https://base.llamarpc.com"],
              "factory": "0x33128a8fC17869897dcE68Ed026d694621f6FDfD",
              "quoter": "0x3d4e44Eb1374240CE5F1B871ab261CD16335B76a",
              "weth": "0x4200000000000000000000000000000000000006",
              "usdc": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"},
-    "unichain": {"chain_id": 130, "rpc": "https://mainnet.unichain.org",
+    "unichain": {"chain_id": 130, "rpc": ["https://mainnet.unichain.org", "https://unichain-rpc.publicnode.com"],
                  "factory": "0x1f98400000000000000000000000000000000003",
                  "quoter": "0x385a5cf5f83e99f7bb2852b6a19c3538b9fa7658",
                  "weth": "0x4200000000000000000000000000000000000006",
@@ -97,13 +99,21 @@ def _ctx():
 
 
 def rpc(chain: str, method: str, params: list, timeout: float = 10.0):
+    """JSON-RPC with endpoint fallback — public RPCs rate-limit (429) or blip;
+    the first endpoint that answers wins."""
     body = json.dumps({"jsonrpc": "2.0", "id": 1, "method": method, "params": params}).encode()
-    req = urllib.request.Request(CHAINS[chain]["rpc"], data=body, headers={
-        "Content-Type": "application/json", "User-Agent": "agentic-trader/1.0 (stdlib json-rpc)"})
-    r = json.loads(urllib.request.urlopen(req, timeout=timeout, context=_ctx()).read())
-    if "error" in r:
-        raise RuntimeError(f"{chain} rpc error: {r['error']}")
-    return r["result"]
+    last = None
+    for url in CHAINS[chain]["rpc"]:
+        try:
+            req = urllib.request.Request(url, data=body, headers={
+                "Content-Type": "application/json", "User-Agent": "agentic-trader/1.0 (stdlib json-rpc)"})
+            r = json.loads(urllib.request.urlopen(req, timeout=timeout, context=_ctx()).read())
+            if "error" in r:
+                raise RuntimeError(f"{chain} rpc error: {r['error']}")
+            return r["result"]
+        except Exception as e:  # try the next endpoint
+            last = e
+    raise RuntimeError(f"{chain}: all RPC endpoints failed ({last!r})"[:200])
 
 
 def eth_call(chain: str, to: str, data: str) -> str:
