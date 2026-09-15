@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.aryanpatel.ybi-bridge</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/bin/caffeinate</string><string>-i</string>
+    <string>/Library/Frameworks/Python.framework/Versions/3.13/bin/python3</string>
+    <string>/Users/aryanpatel/Desktop/Agentic Trading/bridge/ybi_headless.py</string>
+  </array>
+  <key>WorkingDirectory</key><string>/Users/aryanpatel/Desktop/Agentic Trading</string>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>ThrottleInterval</key><integer>15</integer>
+  <key>StandardOutPath</key><string>/Users/aryanpatel/Library/Logs/ybi-bridge.log</string>
+  <key>StandardErrorPath</key><string>/Users/aryanpatel/Library/Logs/ybi-bridge.err</string>
+</dict>
+</plist>

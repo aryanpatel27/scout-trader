@@ -1,0 +1,21 @@
+__pycache__/
+*.pyc
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+.env
+trader.db
+*.sqlite3
+.DS_Store
+# runtime state / personal data — never committed
+trader.db-shm
+trader.db-wal
+journal/
+reports/
+logs/
+.venv-webull/
+deploy/*.plist.local
+bridge/.profile/
+*.log

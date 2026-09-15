@@ -1,0 +1,51 @@
+# agentic-trader configuration. Safe defaults: PAPER mode, tiny sizing.
+
+[mode]
+# "paper" or "live". Live additionally requires --live flag AND env LIVE_TRADING_ACK=I_UNDERSTAND_THE_RISKS.
+mode = "live"
+
+[account]
+start_cash = 36.74          # paper starting cash (mirrors real Webull cash balance)
+# Per Aryan (2026-08-13): YBI-only until equity reaches $3,000, then TDT lane activates.
+route_threshold = 3000.0    # equity < threshold -> YBI small-cap lane; >= threshold -> TDT lane
+
+[risk]
+risk_pct = 0.02             # fraction of equity risked per trade (entry - stop distance)
+max_positions = 2
+daily_loss_cap_pct = 0.06   # stop opening new trades after -6% day
+min_share_fallback = true   # allow a 1-share entry when risk-sized qty rounds to 0 (tiny accounts)
+tdt_stop_pct = 0.03         # TDT lane has no stop in the signal; use synthetic % stop (paper proxy)
+
+[engine]
+quote_ttl_sec = 180         # ignore quotes older than this
+time_stop_min = 45          # exit if trade hasn't worked within N minutes
+flatten_hhmm = "15:55"      # flatten everything at this ET time
+breakout_buffer_bps = 10    # price must clear break level by this many bps
+avoid_midday = true         # YBI rule: no new entries 11:00-14:30 ET (chop window)
+scale_out = true            # YBI rule: at first target sell ~50% and move stop to breakeven
+alert_lanes = false         # Aryan 2026-09-14: YBI alert lane retired — Scout runs the whole book
+                            # with her strategy built in. Alerts (if any) are context only.
+
+[paper]
+slippage_bps = 25           # pessimistic: pay up on entries, give up on exits
+
+[server]
+port = 8787
+bridge_token = "ybi-tdt-local"   # must match the token in bridge/*.user.js
+
+[scout]                     # autonomous discovery lane (YBI-doctrine screener)
+enabled = true
+live = true                # SHADOW until the owner flips this to true — scout orders stay simulated
+risk_pct = 0.01             # half the YBI lane risk while unproven
+max_positions = 2           # sole lane now — may hold two real Scout positions
+min_price = 1.0
+max_price = 2000.0          # any stock, any cap (Aryan 2026-09-10) — the scanner further caps
+                            # candidate price at settled cash so everything found is buyable
+min_day_change_pct = 12.0   # "in play" = big % mover
+stop_max_pct = 0.06         # skip candidates whose swing-low stop is >6% away
+conviction_min = 75         # 5-step framework: BUY only when conviction score >= this
+options_enabled = true      # on a BUY find, also trade a near-the-money call
+options_live = false        # OWNER-ONLY: flip to true for REAL option orders. Verify first with
+                            # the option_preview harness command (needs Webull options approval).
+crypto_enabled = true       # 24/7 crypto monitoring lane — PAPER ONLY (no crypto broker connected)
+crypto_watchlist = ["BTC-USD", "ETH-USD", "SOL-USD", "XRP-USD", "DOGE-USD"]

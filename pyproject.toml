@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agentic-trader"
+version = "2.0.0"
+description = "Paper-first agentic trading system: YBI small-cap lane + TDT signal lane, local dashboard, triple-gated live mode."
+requires-python = ">=3.11"
+dependencies = []
+
+[project.optional-dependencies]
+data = ["yfinance>=0.2.40"]
+live = ["webull-python-sdk-core", "webull-python-sdk-trade", "webull-python-sdk-quotes-core"]
+
+[project.scripts]
+trader = "trader.main:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+trader = ["dashboard.html"]
