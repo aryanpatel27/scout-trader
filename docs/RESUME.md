@@ -16,4 +16,4 @@
   cross-chain spread detection.
 - Separate real/practice wallets with isolated ledgers; broker-truth reconciliation;
   two production incidents turned into permanent safeguards (documented postmortems);
-  74-check offline test suite in CI across Python 3.11–3.13.
+  69-check offline test suite in CI across Python 3.11–3.13.

@@ -38,7 +38,7 @@ real notional; `eth_gasPrice` × the quoter's gas estimate for gas in USD; best 
 executable price net of gas; cross-chain spread. Endpoint fallback per chain.
 
 ## Testing
-`trader selftest` — 74 named, offline checks: parsers against captured messages,
+`trader selftest` — 69 named, offline checks: parsers against captured messages,
 a full paper cycle, wallet isolation, learning bounds, the large-cap and pre-market
 evaluators, stale-quote flatten + after-hours net, Uniswap math/ABI vectors. CI runs
 it on 3.11–3.13.

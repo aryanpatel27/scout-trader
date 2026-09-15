@@ -1,6 +1,6 @@
 # Scout — an autonomous, self-improving trading agent (stocks · options · on-chain DeFi)
 
-[![ci](https://img.shields.io/badge/tests-74%20checks-brightgreen)](.github/workflows/ci.yml)
+[![ci](https://img.shields.io/badge/tests-69%20checks-brightgreen)](.github/workflows/ci.yml)
 ![python](https://img.shields.io/badge/python-3.11%2B-blue) ![deps](https://img.shields.io/badge/runtime%20deps-stdlib-lightgrey)
 
 Scout is a 24/7 trading agent that **finds its own trades, executes them through a
@@ -86,7 +86,7 @@ Details: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · strategy notes:
 ## Run
 
 ```bash
-PYTHONPATH=src python3 -m trader selftest   # 74 offline checks (parsers, engine, wallets, learning, DeFi math)
+PYTHONPATH=src python3 -m trader selftest   # 69 offline checks (parsers, engine, wallets, learning, DeFi math)
 PYTHONPATH=src python3 -m trader serve      # dashboard at http://127.0.0.1:8787 (paper mode by default)
 PYTHONPATH=src python3 -m trader calibrate  # replay-based parameter training on recent data
 ```

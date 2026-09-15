@@ -19,3 +19,6 @@ logs/
 deploy/*.plist.local
 bridge/.profile/
 *.log
+
+# personal runtime config (live gates) — ship config.example.toml instead
+config.toml

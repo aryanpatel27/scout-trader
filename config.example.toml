@@ -2,7 +2,7 @@
 
 [mode]
 # "paper" or "live". Live additionally requires --live flag AND env LIVE_TRADING_ACK=I_UNDERSTAND_THE_RISKS.
-mode = "live"
+mode = "paper"
 
 [account]
 start_cash = 36.74          # paper starting cash (mirrors real Webull cash balance)
@@ -35,7 +35,7 @@ bridge_token = "ybi-tdt-local"   # must match the token in bridge/*.user.js
 
 [scout]                     # autonomous discovery lane (YBI-doctrine screener)
 enabled = true
-live = true                # SHADOW until the owner flips this to true — scout orders stay simulated
+live = false               # SHADOW until the owner flips this to true
 risk_pct = 0.01             # half the YBI lane risk while unproven
 max_positions = 2           # sole lane now — may hold two real Scout positions
 min_price = 1.0
