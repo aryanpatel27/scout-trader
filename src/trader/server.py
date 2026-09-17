@@ -135,6 +135,7 @@ def build_state(store: Store, cfg: Config, broker: PaperBroker, core: TradingCor
             "practice": _practice_view(store, core, marks, practice_pos),
             "premarket": store.kv_get("premarket_watch"),
             "defi": store.kv_get("defi_state"),
+            "fd_usage": store.kv_get("fd_usage"),
             "learning": _learning_view(store),
         },
         "ts": time.time(),
@@ -628,7 +629,7 @@ def premarket_scanner(store: Store, cfg: Config, stop: threading.Event) -> None:
                 stop.wait(300)
                 continue
             data = yfinance.download(syms, period="2d", interval="1m", prepost=True,
-                                     group_by="ticker", threads=True, progress=False, auto_adjust=False)
+                                     group_by="ticker", threads=False, progress=False, auto_adjust=False)
             today = now.date()
             ranked = []
             for sym in syms:
@@ -932,7 +933,7 @@ def quote_poller(store: Store, cfg: Config, stop: threading.Event) -> None:
             try:  # ONE batched call with a hard timeout — a hung socket can no longer
                   # freeze the poller for hours (2026-09-14 overnight-hold incident)
                 h = yfinance.download(plain, period="1d", interval="1m", prepost=True, group_by="ticker",
-                                      threads=True, progress=False, auto_adjust=False, timeout=10)
+                                      threads=False, progress=False, auto_adjust=False, timeout=10)
                 for t in plain:
                     try:
                         col = h[t]["Close"] if len(plain) > 1 else h["Close"]
@@ -961,8 +962,21 @@ def quote_poller(store: Store, cfg: Config, stop: threading.Event) -> None:
 def supervisor(store: Store, cfg: Config, stop: threading.Event, restart_quotes) -> None:
     """If the quote poller's heartbeat goes stale while positions are open, alarm
     and relaunch it. Silence is not success."""
+    import os
+    import resource
     while not stop.is_set():
         stop.wait(60)
+        try:  # file-descriptor watchdog (2026-09-17: a leak hit the 256 cap and wedged the HTTP
+              # server + DNS while the engine kept running — half-dead is worse than restarted)
+            n_fd = len(os.listdir("/dev/fd"))
+            soft = resource.getrlimit(resource.RLIMIT_NOFILE)[0]
+            store.kv_set("fd_usage", {"open": n_fd, "limit": soft, "ts": time.time()})
+            if n_fd > 0.8 * soft:
+                store.event(f"FD WATCHDOG: {n_fd}/{soft} descriptors open — restarting cleanly "
+                            "(state is in SQLite; launchd relaunches in seconds)", "error")
+                os._exit(3)
+        except Exception:
+            pass
         hb = float(store.kv_get("quote_poll_ts", 0) or 0)
         if hb and time.time() - hb > 300 and store.rows("SELECT 1 FROM positions LIMIT 1"):
             store.event(f"QUOTE POLLER STALLED ({round((time.time() - hb) / 60)} min) — relaunching", "error")
@@ -971,6 +985,14 @@ def supervisor(store: Store, cfg: Config, stop: threading.Event, restart_quotes)
 
 
 def serve(port: int | None = None) -> int:
+    try:  # launchd starts us with a 256-descriptor soft limit; give ourselves real headroom
+        import resource
+        soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+        want = 4096 if hard == resource.RLIM_INFINITY else min(4096, hard)
+        if soft < want:
+            resource.setrlimit(resource.RLIMIT_NOFILE, (want, hard))
+    except Exception:
+        pass
     from trader import config as config_mod
     cfg = config_mod.load()
     if port:

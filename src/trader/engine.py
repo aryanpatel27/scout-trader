@@ -327,6 +327,14 @@ class TradingCore:
                 if flatten and q_last and not is_crypto(tkr):
                     self.store.event(f"{tkr}: quote stale — flattening at last known {q_last:.4f}", "warn")
                     q = q_last
+                elif in_practice and (time.time() - p["opened_ts"]) > 1800:
+                    # a PRACTICE position whose data feed died (halted/unpriceable ticker) would
+                    # otherwise hold its slot forever — close it at the last price we ever saw
+                    px = self.store.quote(tkr, 10 ** 9) or p["avg_price"]
+                    self.store.event(f"{tkr}: no price data for 30+ min — closing practice position "
+                                     f"at last known {px:.4f}", "warn")
+                    self.practice.sell(tkr, px, "data_lost")
+                    continue
                 else:
                     self._stale_alarm(tkr)
                     continue

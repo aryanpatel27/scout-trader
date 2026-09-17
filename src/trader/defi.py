@@ -107,7 +107,10 @@ def rpc(chain: str, method: str, params: list, timeout: float = 10.0):
         try:
             req = urllib.request.Request(url, data=body, headers={
                 "Content-Type": "application/json", "User-Agent": "agentic-trader/1.0 (stdlib json-rpc)"})
-            r = json.loads(urllib.request.urlopen(req, timeout=timeout, context=_ctx()).read())
+            # context manager: an unclosed response leaves the socket in CLOSE_WAIT —
+            # at 15 calls/min that exhausted the process's file descriptors in ~2 days
+            with urllib.request.urlopen(req, timeout=timeout, context=_ctx()) as resp:
+                r = json.loads(resp.read())
             if "error" in r:
                 raise RuntimeError(f"{chain} rpc error: {r['error']}")
             return r["result"]
